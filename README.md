@@ -22,8 +22,3 @@ This system leverages **machine learning models** (SVM, Logistic Regression, Ran
 - **Frontend**: Streamlit
 - **Deployment**: Streamlit Cloud
 - **Tools**: VS Code, Pandas, NumPy, Matplotlib
-- 
-## 📋 Installation & Usage
-
-### Prerequisites:
--
