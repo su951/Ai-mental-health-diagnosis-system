@@ -1,70 +1,140 @@
-
 import os
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
-
-
-
-# Load dataset
-df = pd.read_csv('dataset.csv')
-
-# Convert 'yes'/'no' to binary (1/0)
-for col in df.columns[:-1]:  # Exclude 'Disorder' column
-    df[col] = df[col].map({'yes': 1, 'no': 0})
-
-# Encode target variable
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-le = LabelEncoder()
-df['Disorder'] = le.fit_transform(df['Disorder'])
 
-# Train model
-X = df.drop(columns=['Disorder'])
-y = df['Disorder']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+# --- File Paths ---
+MODEL_PATH = "mental_health_model.pkl"
+DATA_PATH = "dataset.csv"
 
-# Save model
-joblib.dump((model, le), "mental_health_model.pkl")
+# --- Train Model and Save ---
+def train_and_save_model():
+    df = pd.read_csv(DATA_PATH)
+    for col in df.columns[:-1]:
+        df[col] = df[col].map({'yes': 1, 'no': 0})
+    le = LabelEncoder()
+    df['Disorder'] = le.fit_transform(df['Disorder'])
+    X = df.drop(columns=['Disorder'])
+    y = df['Disorder']
+    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model.fit(X, y)
+    joblib.dump((model, le, list(X.columns)), MODEL_PATH)
+    return model, le, list(X.columns)
 
-# Streamlit App
+# --- Load Model ---
+def load_model():
+    loaded = joblib.load(MODEL_PATH)
+    if isinstance(loaded, tuple):
+        if len(loaded) == 3:
+            return loaded
+        elif len(loaded) == 2:
+            model, le = loaded
+            feature_names = list(model.feature_names_in_)
+            return model, le, feature_names
+    raise ValueError("Model file format is incorrect.")
+
+# --- Check and Load/Train Model ---
+if not os.path.exists(MODEL_PATH):
+    model, le, feature_names = train_and_save_model()
+else:
+    try:
+        model, le, feature_names = load_model()
+    except Exception as e:
+        st.error(f"⚠️ Failed to load model: {e}")
+        st.stop()
+
+# --- Streamlit App Config ---
 st.set_page_config(page_title="AI Mental Health Diagnosis", page_icon="🧠", layout="wide")
 
-st.title("🧠 AI-Powered Mental Health Diagnosis System")
-st.markdown("### 🏥 A simple tool to help assess mental health conditions")
-st.write("Fill in the symptoms below to get a preliminary diagnosis. This is not a substitute for professional medical advice.")
+# --- Page Header ---
+st.markdown(
+    """
+    <style>
+    .main-title {
+        font-size: 3em;
+        color: #5C4D7D;
+        font-weight: bold;
+        text-align: center;
+    }
+    .sub-title {
+        text-align: center;
+        font-size: 1.5em;
+        color: #777;
+        margin-bottom: 1em;
+    }
+    .note {
+        font-style: italic;
+        text-align: center;
+        color: #999;
+    }
+    .stButton button {
+        background-color: #6c63ff;
+        color: white;
+        border-radius: 8px;
+        font-weight: bold;
+        height: 3em;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# Sidebar for additional info
-st.sidebar.header("About")
-st.sidebar.info("This AI system predicts potential mental health conditions based on user inputs.This AI system harnesses the power of machine learning to predict potential mental health conditions based on user inputs.  this innovative tool is designed to provide accessible, user-friendly insights. By analyzing patterns and responses, the system offers a preliminary understanding that can guide users toward seeking professional assistance or further resources. It aims to support mental health awareness and empower individuals to take proactive steps in their well-being journey ")
-st.sidebar.markdown("📌 **Disclaimer:** Always consult a healthcare professional for an accurate diagnosis.")
+st.markdown('<div class="main-title">🧠 AI-Powered Mental Health Diagnosis</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">A Professional, AI-Driven Mental Health Screening Assistant</div>', unsafe_allow_html=True)
+st.markdown('<div class="note">*Note: This tool is for educational and awareness purposes only.*</div>', unsafe_allow_html=True)
 
-# User input fields
+st.markdown("---")
+
+# Sidebar
+with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/4359/4359966.png", width=100)
+    st.header("ℹ️ About This Tool")
+    st.info("This AI assistant gives a preliminary mental health diagnosis based on your symptoms using machine learning.")
+    st.warning("🛑 This tool does **not replace** a certified medical professional.")
+    st.markdown("Created with ❤️ by Supriya Lahri")
+
+# --- User Input Form ---
 st.subheader("📝 Select Your Symptoms")
-user_input = {}
-cols = list(X.columns)
-col1, col2 = st.columns(2)
+st.markdown("Toggle the symptoms that you're experiencing:")
 
-for i, col in enumerate(cols):
-    if i % 2 == 0:
-        user_input[col] = col1.radio(f"{col.replace('.', ' ').title()}", ["No", "Yes"], index=0)
-    else:
-        user_input[col] = col2.radio(f"{col.replace('.', ' ').title()}", ["No", "Yes"], index=0)
+with st.form("symptom_form"):
+    cols = st.columns(3)
+    user_input = {}
 
-# Convert input to numerical format
-input_data = np.array([1 if user_input[col] == "Yes" else 0 for col in X.columns]).reshape(1, -1)
+    for i, col in enumerate(feature_names):
+        label = col.replace('_', ' ').capitalize()
+        user_input[col] = cols[i % 3].toggle(label, value=False, key=f"symptom_{i}")
 
-if st.button("🔍 Diagnose", use_container_width=True):
-    model, le = joblib.load("mental_health_model.pkl")
+    submitted = st.form_submit_button("🔍 Diagnose", use_container_width=True)
+
+# --- Prediction Section ---
+if submitted:
+    input_data = np.array([1 if user_input[col] else 0 for col in feature_names]).reshape(1, -1)
     prediction = model.predict(input_data)
+    proba = model.predict_proba(input_data)
     diagnosis = le.inverse_transform(prediction)[0]
+    confidence = np.max(proba) * 100
 
-    st.success(f"### 🏥 Predicted Mental Health Condition: **{diagnosis}**")
-    st.markdown("**📢 Note:** This is just a preliminary assessment. Seek professional help for further evaluation.")
+    # Result Box
+    st.markdown("### 🧾 Diagnosis Result")
+    st.success(f"#### ✅ Mental Health Condition: **{diagnosis}**")
+    st.progress(int(confidence), f"Model Confidence: {confidence:.2f}%")
 
+    # Feature Importance
+    st.markdown("#### 🔍 Important Symptoms Influencing the Prediction")
+    importances = model.feature_importances_
+    imp_df = pd.DataFrame({
+        "Symptom": feature_names,
+        "Importance": importances
+    }).sort_values("Importance", ascending=False)
 
+    st.bar_chart(imp_df.set_index("Symptom"))
+
+    # Final Note
+    st.markdown("---")
+    st.warning("🔔 This is a preliminary assessment. If you have concerns, please consult a professional mental health expert.")
 
